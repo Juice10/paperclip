@@ -190,7 +190,7 @@ module Paperclip
           if options[:message]
             options[:message].gsub(/:min/, min.to_s).gsub(/:max/, max.to_s)
           else
-            "height is not between #{min} and #{max} bytes."
+            "height is not between #{min} and #{max} pixels."
           end
         end
       end
@@ -219,7 +219,7 @@ module Paperclip
           if options[:message]
             options[:message].gsub(/:min/, min.to_s).gsub(/:max/, max.to_s)
           else
-            "width is not between #{min} and #{max} bytes."
+            "width is not between #{min} and #{max} pixels."
           end
         end
       end
