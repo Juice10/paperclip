@@ -92,6 +92,11 @@ module Paperclip
     ensure
       validate
     end
+    
+    # returns dimensions of uploaded width and height
+    def original_dimensions
+      Paperclip::Geometry.from_file(@queued_for_write[:original].path)
+    end
 
     # Returns the public URL of the attachment, with a given style. Note that this
     # does not necessarily need to point to a file that your web server can access

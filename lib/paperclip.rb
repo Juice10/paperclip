@@ -183,7 +183,7 @@ module Paperclip
           options[:in] = (0..options[:less_than])
         end
         
-        if attachment.file? && !options[:in].include?(Paperclip::Geometry.from_file(attachment).height)
+        if attachment.file? && !options[:in].include?(attachment.original_dimensions.height)
           min = options[:in].first
           max = options[:in].last
           
@@ -211,8 +211,8 @@ module Paperclip
         unless options[:less_than].nil?
           options[:in] = (0..options[:less_than])
         end
-
-        if attachment.file? && !options[:in].include?(Paperclip::Geometry.from_file(attachment).width)
+        
+        if attachment.file? && !options[:in].include?(attachment.original_dimensions.width)
           min = options[:in].first
           max = options[:in].last
     
