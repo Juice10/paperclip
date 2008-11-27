@@ -9,6 +9,7 @@ module Paperclip
         :path          => ":rails_root/public/:attachment/:id/:style/:basename.:extension",
         :styles        => {},
         :default_url   => "/:attachment/:style/missing.png",
+        :default_path  => ":rails_root/public/:attachment/:style/missing.png",
         :default_style => :original,
         :validations   => {},
         :storage       => :filesystem
@@ -30,6 +31,7 @@ module Paperclip
       @path              = options[:path]
       @styles            = options[:styles]
       @default_url       = options[:default_url]
+      @default_path      = options[:default_path]
       @validations       = options[:validations]
       @default_style     = options[:default_style]
       @storage           = options[:storage]
@@ -105,8 +107,8 @@ module Paperclip
     # file is stored in the filesystem the path refers to the path of the file on
     # disk. If the file is stored in S3, the path is the "key" part of the URL,
     # and the :bucket option refers to the S3 bucket.
-    def path style = nil #:nodoc:
-      interpolate(@path, style)
+    def path style = default_style
+      original_filename.nil? ? interpolate(@default_path, style) : interpolate(@path, style)
     end
 
     # Alias to +url+
