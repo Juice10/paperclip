@@ -172,6 +172,8 @@ class PaperclipTest < Test::Unit::TestCase
      [:size,          {:in => 1..10240},               nil,        "12k.png"],
      [:size,          {:less_than => 10240},           "5k.png",   "12k.png"],
      [:size,          {:greater_than => 8096},         "12k.png",  "5k.png"],
+     [:width,         {:in => 400..500},               "5k.png",   "50x50.png"],
+     [:height,        {:in => 60..70},                 "5k.png",   "50x50.png"],
      [:content_type,  {:content_type => "image/png"},  "5k.png",   "text.txt"],
      [:content_type,  {:content_type => "text/plain"}, "text.txt", "5k.png"],
      [:content_type,  {:content_type => %r{image/.*}}, "5k.png",   "text.txt"]].each do |args|
