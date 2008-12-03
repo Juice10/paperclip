@@ -229,6 +229,12 @@ class AttachmentTest < Test::Unit::TestCase
       assert_equal "/avatars/blah/missing.png", @attachment.url(:blah)
     end
     
+    should "return default path as path when no file assigned" do
+      assert @attachment.to_file.nil?
+      assert_equal "#{RAILS_ROOT}/public/avatars/original/missing.png", @attachment.path
+      assert_equal "#{RAILS_ROOT}/public/avatars/blah/missing.png",     @attachment.path(:blah)
+    end
+    
     context "with a file assigned in the database" do
       setup do
         @attachment.stubs(:instance_read).with(:file_name).returns("5k.png")
