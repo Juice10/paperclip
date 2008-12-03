@@ -93,7 +93,16 @@ module Paperclip
       validate
     end
     
-    # returns dimensions of uploaded width and height
+    # Returns true if there is nothing in the queue
+    def queue_empty? type = nil
+      if type
+        @queued_for_write[type].nil?
+      else
+        @queued_for_write.size == 0
+      end
+    end
+    
+    # Returns dimensions of uploaded width and height
     def original_dimensions
       Paperclip::Geometry.from_file(@queued_for_write[:original].path)
     end
