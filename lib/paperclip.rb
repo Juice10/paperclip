@@ -170,7 +170,7 @@ module Paperclip
     
     # Places ActiveRecord-style validations on the height of the file assigned. The
     # possible options are:
-    # * +in+: a Range of bytes (i.e. +1..1.megabyte+),
+    # * +in+: a Range of pixels (i.e. +1..1.pixels+),
     # * +less_than+: equivalent to :in => 0..options[:less_than]
     # * +greater_than+: equivalent to :in => options[:greater_than]..Infinity
     # * +message+: error message to display, use :min and :max as replacements
@@ -199,7 +199,7 @@ module Paperclip
     
     # Places ActiveRecord-style validations on the width of the file assigned. The
     # possible options are:
-    # * +in+: a Range of bytes (i.e. +1..1.megabyte+),
+    # * +in+: a Range of pixels (i.e. +1..1.pixels+),
     # * +less_than+: equivalent to :in => 0..options[:less_than]
     # * +greater_than+: equivalent to :in => options[:greater_than]..Infinity
     # * +message+: error message to display, use :min and :max as replacements
