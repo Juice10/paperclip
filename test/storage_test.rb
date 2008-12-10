@@ -124,7 +124,7 @@ class StorageTest < Test::Unit::TestCase
       end
     end
   end
-
+  
   unless ENV["S3_TEST_BUCKET"].blank?
     context "Using S3 for real, an attachment with S3 storage" do
       setup do
@@ -163,5 +163,7 @@ class StorageTest < Test::Unit::TestCase
         end
       end
     end
+  
+  
   end
 end
