@@ -37,7 +37,7 @@ require 'paperclip/attachment'
 # documentation for Paperclip::ClassMethods for more useful information.
 module Paperclip
 
-  VERSION = "2.1.4"
+  VERSION = "2.1.5"
 
   class << self
     # Provides configurability to Paperclip. There are a number of options available, such as:
@@ -238,7 +238,7 @@ module Paperclip
       message = options[:message] || "file size must be between :min and :max bytes."
 
       attachment_definitions[name][:validations][:size] = lambda do |attachment, instance|
-        if attachment.file? && !range.include?(attachment.instance_read(:file_size).to_i)
+        if attachment.file? && !range.include?(attachment.size.to_i)
           message.gsub(/:min/, min.to_s).gsub(/:max/, max.to_s)
         end
       end
@@ -289,8 +289,8 @@ module Paperclip
 
   module InstanceMethods #:nodoc:
     def attachment_for name
-      @attachments ||= {}
-      @attachments[name] ||= Attachment.new(name, self, self.class.attachment_definitions[name])
+      @_paperclip_attachments ||= {}
+      @_paperclip_attachments[name] ||= Attachment.new(name, self, self.class.attachment_definitions[name])
     end
     
     def each_attachment

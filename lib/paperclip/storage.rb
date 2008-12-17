@@ -97,7 +97,7 @@ module Paperclip
       # Returns representation of the data of the file assigned to the given
       # style, in the format most representative of the current storage.
       def to_file style = default_style
-        @queued_for_write[style] || (File.new(path(style)) if exists?(style))
+        @queued_for_write[style] || (File.new(path(style), 'rb') if exists?(style))
       end
       alias_method :to_io, :to_file
 
@@ -107,6 +107,7 @@ module Paperclip
           FileUtils.mkdir_p(File.dirname(path(style)))
           logger.info("[paperclip][fs] -> #{path(style)}")
           FileUtils.mv(file.path, path(style))
+          FileUtils.chmod(0644, path(style))
           file.close
         end
         @queued_for_write = {}

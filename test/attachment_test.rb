@@ -77,7 +77,7 @@ class AttachmentTest < Test::Unit::TestCase
       @dummy.stubs(:id).returns(1024)
       @file = File.new(File.join(File.dirname(__FILE__),
                                  "fixtures",
-                                 "5k.png"))
+                                 "5k.png"), 'rb')
       @dummy.avatar = @file
     end
 
@@ -95,7 +95,7 @@ class AttachmentTest < Test::Unit::TestCase
       @dummy.stubs(:id).returns(@id)
       @file = File.new(File.join(File.dirname(__FILE__),
                                  "fixtures",
-                                 "5k.png"))
+                                 "5k.png"), 'rb')
       @dummy.avatar = @file
     end
 
@@ -131,7 +131,7 @@ class AttachmentTest < Test::Unit::TestCase
       setup do
         @file = File.new(File.join(File.dirname(__FILE__),
                                    "fixtures",
-                                   "5k.png"))
+                                   "5k.png"), 'rb')
         Paperclip::Thumbnail.stubs(:make)
         [:thumb, :large].each do |style|
           @dummy.avatar.stubs(:extra_options_for).with(style)
@@ -163,6 +163,7 @@ class AttachmentTest < Test::Unit::TestCase
       @attachment.expects(:valid_assignment?).with(@not_file).returns(true)
       @attachment.expects(:queue_existing_for_delete)
       @attachment.expects(:post_process)
+      @attachment.expects(:valid?).returns(true)
       @attachment.expects(:validate)
       @dummy.avatar = @not_file
     end
@@ -192,6 +193,7 @@ class AttachmentTest < Test::Unit::TestCase
       @attachment.expects(:valid_assignment?).with(@not_file).returns(true)
       @attachment.expects(:queue_existing_for_delete)
       @attachment.expects(:post_process)
+      @attachment.expects(:valid?).returns(true)
       @attachment.expects(:validate)
       @dummy.avatar = @not_file
     end
@@ -213,7 +215,7 @@ class AttachmentTest < Test::Unit::TestCase
       @attachment = Paperclip::Attachment.new(:avatar, @instance)
       @file = File.new(File.join(File.dirname(__FILE__),
                                  "fixtures",
-                                 "5k.png"))
+                                 "5k.png"), 'rb')
     end
 
     should "raise if there are not the correct columns when you try to assign" do
@@ -300,9 +302,11 @@ class AttachmentTest < Test::Unit::TestCase
             end
 
             should "return the real url" do
-              assert @attachment.to_file
+              file = @attachment.to_file
+              assert file
               assert_match %r{^/avatars/#{@instance.id}/original/5k\.png}, @attachment.url
               assert_match %r{^/avatars/#{@instance.id}/small/5k\.jpg}, @attachment.url(:small)
+              file.close
             end
 
             should "commit the files to disk" do
@@ -310,6 +314,7 @@ class AttachmentTest < Test::Unit::TestCase
                 io = @attachment.to_io(style)
                 assert File.exists?(io)
                 assert ! io.is_a?(::Tempfile)
+                io.close
               end
             end
 
@@ -317,8 +322,7 @@ class AttachmentTest < Test::Unit::TestCase
               [[:large, 400, 61, "PNG"],
                [:medium, 100, 15, "GIF"],
                [:small, 32, 32, "JPEG"]].each do |style|
-                cmd = "identify -format '%w %h %b %m' " + 
-                      "#{@attachment.to_io(style.first).path}"
+                cmd = %Q[identify -format "%w %h %b %m" "#{@attachment.path(style.first)}"]
                 out = `#{cmd}`
                 width, height, size, format = out.split(" ")
                 assert_equal style[1].to_s, width.to_s 
@@ -328,7 +332,8 @@ class AttachmentTest < Test::Unit::TestCase
             end
 
             should "still have its #file attribute not be nil" do
-              assert ! @attachment.to_file.nil?
+              assert ! (file = @attachment.to_file).nil?
+              file.close
             end
 
             context "and deleted" do
@@ -361,6 +366,91 @@ class AttachmentTest < Test::Unit::TestCase
 
       should "not be able to find the module" do
         assert_raise(NameError){ Dummy.new.avatar }
+      end
+    end
+  end
+
+  context "An attachment with only a avatar_file_name column" do
+    setup do
+      ActiveRecord::Base.connection.create_table :dummies, :force => true do |table|
+        table.column :avatar_file_name, :string
+      end
+      rebuild_class
+      @dummy = Dummy.new
+      @file = File.new(File.join(File.dirname(__FILE__), "fixtures", "5k.png"), 'rb')
+    end
+
+    should "not error when assigned an attachment" do
+      assert_nothing_raised { @dummy.avatar = @file }
+    end
+
+    should "return nil when sent #avatar_updated_at" do
+      @dummy.avatar = @file
+      assert_nil @dummy.avatar.updated_at
+    end
+
+    should "return the right value when sent #avatar_file_size" do
+      @dummy.avatar = @file
+      assert_equal @file.size, @dummy.avatar.size
+    end
+
+    context "and avatar_updated_at column" do
+      setup do
+        ActiveRecord::Base.connection.add_column :dummies, :avatar_updated_at, :timestamp
+        rebuild_class
+        @dummy = Dummy.new
+      end
+
+      should "not error when assigned an attachment" do
+        assert_nothing_raised { @dummy.avatar = @file }
+      end
+
+      should "return the right value when sent #avatar_updated_at" do
+        now = Time.now
+        Time.stubs(:now).returns(now)
+        @dummy.avatar = @file
+        assert_equal now.to_i, @dummy.avatar.updated_at
+      end
+    end
+
+    context "and avatar_content_type column" do
+      setup do
+        ActiveRecord::Base.connection.add_column :dummies, :avatar_content_type, :string
+        rebuild_class
+        @dummy = Dummy.new
+      end
+
+      should "not error when assigned an attachment" do
+        assert_nothing_raised { @dummy.avatar = @file }
+      end
+
+      should "return the right value when sent #avatar_content_type" do
+        @dummy.avatar = @file
+        assert_equal "image/png", @dummy.avatar.content_type
+      end
+    end
+
+    context "and avatar_file_size column" do
+      setup do
+        ActiveRecord::Base.connection.add_column :dummies, :avatar_file_size, :integer
+        rebuild_class
+        @dummy = Dummy.new
+      end
+
+      should "not error when assigned an attachment" do
+        assert_nothing_raised { @dummy.avatar = @file }
+      end
+
+      should "return the right value when sent #avatar_file_size" do
+        @dummy.avatar = @file
+        assert_equal @file.size, @dummy.avatar.size
+      end
+
+      should "return the right value when saved, reloaded, and sent #avatar_file_size" do
+        @dummy.avatar = @file
+        @dummy.save
+        @dummy = Dummy.find(@dummy.id)
+        assert_equal @file.size, @dummy.avatar.size
       end
     end
   end

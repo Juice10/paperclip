@@ -85,7 +85,7 @@ module Paperclip
 
       @dirty = true
 
-      post_process
+      post_process if valid?
  
       # Reset the file size if the original file was reprocessed.
       instance_write(:file_size, uploaded_file.size.to_i)
@@ -167,6 +167,14 @@ module Paperclip
     def original_filename
       instance_read(:file_name)
     end
+
+    def size
+      instance_read(:file_size) || (@queued_for_write[:original] && @queued_for_write[:original].size)
+    end
+
+    def content_type
+      instance_read(:content_type)
+    end
     
     def updated_at
       time = instance_read(:updated_at)
@@ -227,11 +235,15 @@ module Paperclip
     end
 
     def instance_write(attr, value)
-      instance.send(:"#{name}_#{attr}=", value)
+      setter = :"#{name}_#{attr}="
+      responds = instance.respond_to?(setter)
+      instance.send(setter, value) if responds || attr.to_s == "file_name"
     end
 
     def instance_read(attr)
-      instance.send(:"#{name}_#{attr}")
+      getter = :"#{name}_#{attr}"
+      responds = instance.respond_to?(getter)
+      instance.send(getter) if responds || attr.to_s == "file_name"
     end
 
     private
