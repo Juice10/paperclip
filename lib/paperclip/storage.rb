@@ -218,10 +218,14 @@ module Paperclip
         @s3_protocol
       end
 
+      def s3_path(style = default_style)
+        @options[:s3_path] ? interpolate(@options[:s3_path], style) : path(style)
+      end
+
       # Returns representation of the data of the file assigned to the given
       # style, in the format most representative of the current storage.
       def to_file style = default_style
-        @queued_for_write[style] || s3_bucket.key(path(style))
+        @queued_for_write[style] || s3_bucket.key(s3_path(style))
       end
       alias_method :to_io, :to_file
 
@@ -229,8 +233,9 @@ module Paperclip
         logger.info("[paperclip][s3] Writing files for #{name}")
         @queued_for_write.each do |style, file|
           begin
-            logger.info("[paperclip][s3] -> #{path(style)}")
-            key = s3_bucket.key(path(style))
+            path_to_write = s3_path(style)
+            logger.info("[paperclip][s3] -> #{path_to_write}")
+            key = s3_bucket.key(path_to_write)
             key.data = file
             key.put(nil, @s3_permissions, {'Content-type' => instance_read(:content_type)}.merge(@s3_headers))
           rescue RightAws::AwsError => e
@@ -243,6 +248,7 @@ module Paperclip
       def flush_deletes #:nodoc:
         logger.info("[paperclip][s3] Deleting files for #{name}")
         @queued_for_delete.each do |path|
+          # TODO: make this work with s3_path
           begin
             logger.info("[paperclip][s3] -> #{path}")
             if file = s3_bucket.key(path)

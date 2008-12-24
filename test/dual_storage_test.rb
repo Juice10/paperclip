@@ -8,6 +8,7 @@ class DualStorageTest < Test::Unit::TestCase
                     :path => "/tmp/:attachment/:style/:basename.:extension",
                     :default_path => "/tmp/:attachment/default_avatar.png",
                     :url => "http://s3.amazon.com/testing/:attachment/:style/:basename.:extension",
+                    :s3_path => ":attachment/:style/:basename.:extension",
                     :default_url => "http://s3.amazon.com/testing/default_avatar.png",
                     :s3_credentials => {
                       'access_key_id' => "12345",
@@ -59,7 +60,7 @@ class DualStorageTest < Test::Unit::TestCase
           RightAws::S3.expects(:new).with("12345", "54321", {}).returns(@s3_mock)
           @s3_mock.expects(:bucket).with("testing", true, "public-read").returns(@bucket_mock)
           @key_mock = stub
-          @bucket_mock.expects(:key).returns(@key_mock)
+          @bucket_mock.expects(:key).with('avatars/original/5k.png').returns(@key_mock)
           @key_mock.expects(:data=)
           @key_mock.expects(:put).with(nil, 'public-read', 'Content-type' => 'image/png')
 
