@@ -188,7 +188,7 @@ module Paperclip
           @s3_permissions = @options[:s3_permissions] || 'public-read'
           @s3_protocol    = @options[:s3_protocol] || (@s3_permissions == 'public-read' ? 'http' : 'https')
           @s3_headers     = @options[:s3_headers] || {}
-          @url            = ":s3_path_url" unless @url.to_s.match(/^:s3.*url$/)
+          @url            = ":s3_path_url" unless @url.to_s.match(/^:s3.*url$/) || @options[:s3_path]
           @s3_queued_for_delete = []
         end
         base.class.interpolations[:s3_path_url] = lambda do |attachment, style|

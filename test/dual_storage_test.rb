@@ -7,9 +7,9 @@ class DualStorageTest < Test::Unit::TestCase
                     :bucket => "testing",
                     :path => "/tmp/:attachment/:style/:basename.:extension",
                     :default_path => "/tmp/:attachment/default_avatar.png",
-                    :url => "http://s3.amazon.com/testing/:attachment/:style/:basename.:extension",
+                    :url => "http://images.test.com/testing/:attachment/:style/:basename.:extension",
                     :s3_path => ":attachment/:style/:basename.:extension",
-                    :default_url => "http://s3.amazon.com/testing/default_avatar.png",
+                    :default_url => "http://images.test.com/testing/default_avatar.png",
                     :s3_credentials => {
                       'access_key_id' => "12345",
                       'secret_access_key' => "54321"
@@ -26,7 +26,7 @@ class DualStorageTest < Test::Unit::TestCase
       end
 
       should "get the default url" do
-        assert_equal "http://s3.amazon.com/testing/default_avatar.png", @dummy.avatar.url
+        assert_equal "http://images.test.com/testing/default_avatar.png", @dummy.avatar.url
       end
       
       should "get the default path" do
@@ -43,7 +43,7 @@ class DualStorageTest < Test::Unit::TestCase
       end
 
       should "get the url" do
-        assert_match %r{^http://s3.amazonaws.com/testing/tmp/avatars/original/5k\.png}, @dummy.avatar.url
+        assert_match %r{^http://images.test.com/testing/avatars/original/5k\.png}, @dummy.avatar.url
       end
 
       should "get the path" do
@@ -73,6 +73,14 @@ class DualStorageTest < Test::Unit::TestCase
           io = @dummy.avatar.to_io(:original)
           assert File.exists?(io)
           assert !io.is_a?(::Tempfile)
+        end
+
+        should "still get the url" do
+          assert_match %r{^http://images.test.com/testing/avatars/original/5k\.png}, @dummy.avatar.url
+        end
+
+        should "still get the path" do
+          assert_match %r{^/tmp/avatars/original/5k\.png}, @dummy.avatar.path
         end
 
         context "and then removed" do
