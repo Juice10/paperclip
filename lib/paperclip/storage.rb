@@ -1,6 +1,6 @@
 module Paperclip
   module Storage
-    
+
     # This storage engine will save both to the filesystem and S3.
     # The idea is that the filesystem is used for operations like image-manipulation for
     # badges or widgets. The images stored on S3 will be used for serving the images over
@@ -9,62 +9,62 @@ module Paperclip
       def self.extended(base)
         s3_mod = Paperclip::Storage::S3.clone
         s3_mod.module_eval do
-          [:exists?, :to_file, :flush_writes, :flush_deletes].each do |m|
+          [:exists?, :to_file, :flush_writes, :flush_deletes, :queue_for_delete].each do |m|
             if method_defined?(m)
               alias_method "s3_#{m}".to_sym, m
               undef_method m
             end
           end
         end
-        
+
         fs_mod = Paperclip::Storage::Filesystem.clone
         fs_mod.module_eval do
-          [:exists?, :to_file, :flush_writes, :flush_deletes].each do |m|
+          [:exists?, :to_file, :flush_writes, :flush_deletes, :queue_for_delete].each do |m|
             if method_defined?(m)
               alias_method "fs_#{m}".to_sym, m
               undef_method m
             end
           end
         end
-        
+
         base.extend(s3_mod) unless base.respond_to?(:s3_exists?)
         base.extend(fs_mod) unless base.respond_to?(:fs_exists?)
         base.extend(DualMethods)
-        
+
         ActiveRecord::Base.logger.info "[paperclip][dual] Dual storage initialized"
       end
-      
+
       module DualMethods
         def exists?(style = default_style)
           fs_exists?(style)
         end
-        
+
         def to_file style = default_style
           fs_to_file(style)
         end
         alias_method :to_io, :to_file
-        
+
         def flush_writes
           ActiveRecord::Base.logger.info("[paperclip][dual] flush_writes")
-          
           write_queue = @queued_for_write
           s3_flush_writes
-          
           @queued_for_write = write_queue
           fs_flush_writes
         end
-        
+
+        def queue_for_delete(style)
+          fs_queue_for_delete(style)
+          s3_queue_for_delete(style)
+        end
+
         def flush_deletes
           ActiveRecord::Base.logger.info("[paperclip][dual] flush_deletes")
-          delete_queue = @queued_for_delete
           fs_flush_deletes
-          
-          @queued_for_delete = delete_queue
           s3_flush_deletes
         end
       end
     end
-    
+
     # The default place to store attachments is in the filesystem. Files on the local
     # filesystem can be very easily served by Apache without requiring a hit to your app.
     # They also can be processed more easily after they've been saved, as they're just
@@ -83,8 +83,11 @@ module Paperclip
     module Filesystem
       def self.extended base
         ActiveRecord::Base.logger.info "[paperclip][fs] Filesystem storage initialized"
+        base.instance_eval do
+          @fs_queued_for_delete = []
+        end
       end
-      
+
       def exists?(style = default_style)
         if original_filename
           File.exist?(path(style))
@@ -112,9 +115,14 @@ module Paperclip
         @queued_for_write = {}
       end
 
+      def queue_for_delete(style)
+        logger.info("[paperclip][fs] Queueing #{style} for delete.")
+        @fs_queued_for_delete << path(style) if exists?(style)
+      end
+
       def flush_deletes #:nodoc:
         logger.info("[paperclip][fs] Deleting files for #{name}")
-        @queued_for_delete.each do |path|
+        @fs_queued_for_delete.each do |path|
           begin
             logger.info("[paperclip][fs] -> #{path}")
             FileUtils.rm(path) if File.exist?(path)
@@ -122,7 +130,7 @@ module Paperclip
             # ignore file-not-found, let everything else pass
           end
         end
-        @queued_for_delete = []
+        @fs_queued_for_delete = []
       end
     end
 
@@ -181,6 +189,7 @@ module Paperclip
           @s3_protocol    = @options[:s3_protocol] || (@s3_permissions == 'public-read' ? 'http' : 'https')
           @s3_headers     = @options[:s3_headers] || {}
           @url            = ":s3_path_url" unless @url.to_s.match(/^:s3.*url$/)
+          @s3_queued_for_delete = []
         end
         base.class.interpolations[:s3_path_url] = lambda do |attachment, style|
           "#{attachment.s3_protocol}://s3.amazonaws.com/#{attachment.bucket_name}/#{attachment.path(style).gsub(%r{^/}, "")}"
@@ -209,7 +218,7 @@ module Paperclip
         creds = find_credentials(creds).stringify_keys
         (creds[ENV['RAILS_ENV']] || creds).symbolize_keys
       end
-      
+
       def exists?(style = default_style)
         s3_bucket.key(path(style)) ? true : false
       end
@@ -245,10 +254,13 @@ module Paperclip
         @queued_for_write = {}
       end
 
+      def queue_for_delete(style)
+        @s3_queued_for_delete << s3_path(style) if exists?(style)
+      end
+
       def flush_deletes #:nodoc:
         logger.info("[paperclip][s3] Deleting files for #{name}")
-        @queued_for_delete.each do |path|
-          # TODO: make this work with s3_path
+        @s3_queued_for_delete.each do |path|
           begin
             logger.info("[paperclip][s3] -> #{path}")
             if file = s3_bucket.key(path)
@@ -258,9 +270,9 @@ module Paperclip
             # Ignore this.
           end
         end
-        @queued_for_delete = []
+        @s3_queued_for_delete = []
       end
-      
+
       def find_credentials creds
         case creds
         when File:

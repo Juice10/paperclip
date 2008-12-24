@@ -39,7 +39,6 @@ module Paperclip
       @convert_options   = options[:convert_options] || {}
       @processors        = [:thumbnail]
       @options           = options
-      @queued_for_delete = []
       @queued_for_write  = {}
       @errors            = {}
       @validation_errors = nil
@@ -113,7 +112,7 @@ module Paperclip
     # and can point to an action in your app, if you need fine grained security.
     # This is not recommended if you don't need the security, however, for
     # performance reasons.
-	# set include_updated_timestamp to false if you want to stop the attachment update time appended to the url
+    # set include_updated_timestamp to false if you want to stop the attachment update time appended to the url
     def url style = default_style, include_updated_timestamp = true
       url = original_filename.nil? ? interpolate(@default_url, style) : interpolate(@url, style)
       include_updated_timestamp && updated_at ? [url, updated_at].compact.join(url.include?("?") ? "&" : "?") : url
@@ -254,7 +253,7 @@ module Paperclip
       instance.logger
     end
 
-    def valid_assignment? file #:nodoc:
+    def valid_assignment?(file) #:nodoc:
       file.nil? || (file.respond_to?(:original_filename) && file.respond_to?(:content_type))
     end
 
@@ -319,7 +318,7 @@ module Paperclip
       instance.run_callbacks(which, @queued_for_write){|result, obj| result == false }
     end
 
-    def interpolate pattern, style = default_style #:nodoc:
+    def interpolate(pattern, style = default_style) #:nodoc:
       interpolations = self.class.interpolations.sort{|a,b| a.first.to_s <=> b.first.to_s }
       interpolations.reverse.inject( pattern.dup ) do |result, interpolation|
         tag, blk = interpolation
@@ -332,9 +331,9 @@ module Paperclip
     def queue_existing_for_delete #:nodoc:
       return unless file?
       logger.info("[paperclip] Queueing the existing files for #{name} for deletion.")
-      @queued_for_delete += [:original, *@styles.keys].uniq.map do |style|
-        path(style) if exists?(style)
-      end.compact
+      [:original, *@styles.keys].uniq.map do |style|
+        queue_for_delete(style)
+      end
       instance_write(:file_name, nil)
       instance_write(:content_type, nil)
       instance_write(:file_size, nil)

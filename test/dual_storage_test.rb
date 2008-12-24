@@ -17,8 +17,6 @@ class DualStorageTest < Test::Unit::TestCase
     end
 
     should "be extended by all the storage modules" do
-      # assert Dummy.new.avatar.is_a?(Paperclip::Storage::S3)
-      # assert Dummy.new.avatar.is_a?(Paperclip::Storage::Filesystem)
       assert Dummy.new.avatar.is_a?(Paperclip::Storage::Dual)
     end
 
@@ -80,7 +78,7 @@ class DualStorageTest < Test::Unit::TestCase
         context "and then removed" do
           setup do
             @key_mock.expects(:delete)
-            @bucket_mock.expects(:key).returns(@key_mock)
+            @bucket_mock.expects(:key).with('avatars/original/5k.png').returns(@key_mock)
             @dummy.destroy_attached_files
           end
 
