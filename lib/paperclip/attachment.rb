@@ -16,7 +16,7 @@ module Paperclip
       }
     end
 
-    attr_reader :name, :instance, :styles, :default_style, :convert_options
+    attr_reader :name, :instance, :styles, :default_style, :convert_options, :queued_for_write
 
     # Creates an Attachment object. +name+ is the name of the attachment, +instance+ is the
     # ActiveRecord object instance it's attached to, and +options+ is the same as the hash
@@ -35,8 +35,9 @@ module Paperclip
       @validations       = options[:validations]
       @default_style     = options[:default_style]
       @storage           = options[:storage]
-      @whiny_thumbnails  = options[:whiny_thumbnails]
+      @whiny             = options[:whiny_thumbnails]
       @convert_options   = options[:convert_options] || {}
+      @processors        = [:thumbnail]
       @options           = options
       @queued_for_delete = []
       @queued_for_write  = {}
@@ -112,9 +113,10 @@ module Paperclip
     # and can point to an action in your app, if you need fine grained security.
     # This is not recommended if you don't need the security, however, for
     # performance reasons.
-    def url style = default_style
+	# set include_updated_timestamp to false if you want to stop the attachment update time appended to the url
+    def url style = default_style, include_updated_timestamp = true
       url = original_filename.nil? ? interpolate(@default_url, style) : interpolate(@url, style)
-      updated_at ? [url, updated_at].compact.join(url.include?("?") ? "&" : "?") : url
+      include_updated_timestamp && updated_at ? [url, updated_at].compact.join(url.include?("?") ? "&" : "?") : url
     end
 
     # Returns the path of the attachment as defined by the :path option. If the
@@ -197,7 +199,7 @@ module Paperclip
                            attachment.original_filename.gsub(/#{File.extname(attachment.original_filename)}$/, "")
                          end,
         :extension    => lambda do |attachment,style| 
-                           ((style = attachment.styles[style]) && style.last) ||
+                           ((style = attachment.styles[style]) && style[:format]) ||
                            File.extname(attachment.original_filename).gsub(/^\.+/, "")
                          end,
         :id           => lambda{|attachment,style| attachment.instance.id },
@@ -271,9 +273,17 @@ module Paperclip
 
     def normalize_style_definition
       @styles.each do |name, args|
-        dimensions, format = [args, nil].flatten[0..1]
-        format             = nil if format == ""
-        @styles[name]      = [dimensions, format]
+        unless args.is_a? Hash
+          dimensions, format = [args, nil].flatten[0..1]
+          format             = nil if format.blank?
+          @styles[name]      = {
+            :processors      => @processors,
+            :geometry        => dimensions,
+            :format          => format,
+            :whiny           => @whiny,
+            :convert_options => extra_options_for(name)
+          }
+        end
       end
     end
 
@@ -288,20 +298,25 @@ module Paperclip
 
     def post_process #:nodoc:
       return if @queued_for_write[:original].nil?
+      return if callback(:before_post_process) == false
+      return if callback(:"before_#{name}_post_process") == false
       logger.info("[paperclip] Post-processing #{name}")
       @styles.each do |name, args|
         begin
-          dimensions, format = args
-          dimensions = dimensions.call(instance) if dimensions.respond_to? :call
-          @queued_for_write[name] = Thumbnail.make(@queued_for_write[:original], 
-                                                   dimensions,
-                                                   format, 
-                                                   extra_options_for(name),
-                                                   @whiny_thumbnails)
+          @queued_for_write[name] = @queued_for_write[:original]
+          args[:processors].each do |processor|
+            @queued_for_write[name] = Paperclip.processor(processor).make(@queued_for_write[name], args)
+          end
         rescue PaperclipError => e
-          (@errors[:processing] ||= []) << e.message if @whiny_thumbnails
+          (@errors[:processing] ||= []) << e.message if @whiny
         end
       end
+      callback(:"after_#{name}_post_process")
+      callback(:after_post_process)
+    end
+
+    def callback which
+      instance.run_callbacks(which, @queued_for_write){|result, obj| result == false }
     end
 
     def interpolate pattern, style = default_style #:nodoc:
