@@ -242,7 +242,7 @@ module Paperclip
       end
 
       def flush_deletes #:nodoc:
-        logger.info("[paperclip][s3] Writing files for #{name}")
+        logger.info("[paperclip][s3] Deleting files for #{name}")
         @queued_for_delete.each do |path|
           begin
             logger.info("[paperclip][s3] -> #{path}")
