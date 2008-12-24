@@ -48,11 +48,10 @@ module Paperclip
           ActiveRecord::Base.logger.info("[paperclip][dual] flush_writes")
           
           write_queue = @queued_for_write
-          fs_flush_writes
+          s3_flush_writes
           
           @queued_for_write = write_queue
-          
-          s3_flush_writes
+          fs_flush_writes
         end
         
         def flush_deletes
