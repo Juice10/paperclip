@@ -30,8 +30,6 @@ module Paperclip
         base.extend(s3_mod) unless base.respond_to?(:s3_exists?)
         base.extend(fs_mod) unless base.respond_to?(:fs_exists?)
         base.extend(DualMethods)
-
-        ActiveRecord::Base.logger.info "[paperclip][dual] Dual storage initialized"
       end
 
       module DualMethods
@@ -45,7 +43,7 @@ module Paperclip
         alias_method :to_io, :to_file
 
         def flush_writes
-          ActiveRecord::Base.logger.info("[paperclip][dual] flush_writes")
+          log("[dual] Flushing all writes")
           write_queue = @queued_for_write
           s3_flush_writes
           @queued_for_write = write_queue
@@ -58,7 +56,7 @@ module Paperclip
         end
 
         def flush_deletes
-          ActiveRecord::Base.logger.info("[paperclip][dual] flush_deletes")
+          log("[dual] Flushing all deletes")
           fs_flush_deletes
           s3_flush_deletes
         end
@@ -82,7 +80,6 @@ module Paperclip
     #     :path => "/var/app/attachments/:class/:id/:style/:basename.:extension"
     module Filesystem
       def self.extended base
-        ActiveRecord::Base.logger.info "[paperclip][fs] Filesystem storage initialized"
         base.instance_eval do
           @fs_queued_for_delete = []
         end
@@ -104,11 +101,11 @@ module Paperclip
       alias_method :to_io, :to_file
 
       def flush_writes #:nodoc:
-        logger.info("[paperclip][fs] Writing files for #{name}")
+        log("[fs] Writing files for #{name}")
         @queued_for_write.each do |style, file|
           file.close
           FileUtils.mkdir_p(File.dirname(path(style)))
-          logger.info("[paperclip][fs] -> #{path(style)}")
+          log("[fs] Writing #{path(style)}")
           FileUtils.mv(file.path, path(style))
           FileUtils.chmod(0644, path(style))
         end
@@ -116,15 +113,15 @@ module Paperclip
       end
 
       def queue_for_delete(style)
-        logger.info("[paperclip][fs] Queueing #{style} for delete.")
+        log("[fs] Queueing #{style} for delete.")
         @fs_queued_for_delete << path(style) if exists?(style)
       end
 
       def flush_deletes #:nodoc:
-        logger.info("[paperclip][fs] Deleting files for #{name}")
+        log("[fs] Deleting files for #{name}")
         @fs_queued_for_delete.each do |path|
           begin
-            logger.info("[paperclip][fs] -> #{path}")
+            log("[fs] Deleting #{path}")
             FileUtils.rm(path) if File.exist?(path)
           rescue Errno::ENOENT => e
             # ignore file-not-found, let everything else pass
@@ -137,7 +134,7 @@ module Paperclip
           rescue Errno::EEXIST, Errno::ENOTEMPTY, Errno::ENOENT, Errno::EINVAL, Errno::ENOTDIR
             # Stop trying to remove parent directories
           rescue SystemCallError => e
-            logger.info("[paperclip] There was an unexpected error while deleting directories: #{e.class}")
+            log("[fs] There was an unexpected error while deleting directories: #{e.class}")
             # Ignore it
           end
         end
@@ -211,7 +208,6 @@ module Paperclip
         base.class.interpolations[:s3_domain_url] = lambda do |attachment, style|
           "#{attachment.s3_protocol}://#{attachment.bucket_name}.s3.amazonaws.com/#{attachment.path(style).gsub(%r{^/}, "")}"
         end
-        ActiveRecord::Base.logger.info("[paperclip][s3] S3 Storage Initalized.")
       end
 
       def s3
@@ -253,11 +249,11 @@ module Paperclip
       alias_method :to_io, :to_file
 
       def flush_writes #:nodoc:
-        logger.info("[paperclip][s3] Writing files for #{name}")
+        log("[s3] Writing files for #{name}")
         @queued_for_write.each do |style, file|
           begin
             path_to_write = s3_path(style)
-            logger.info("[paperclip][s3] -> #{path_to_write}")
+            log("[s3] Storing #{path_to_write}")
             key = s3_bucket.key(path_to_write)
             key.data = file
             key.put(nil, @s3_permissions, {'Content-type' => instance_read(:content_type)}.merge(@s3_headers))
@@ -269,14 +265,15 @@ module Paperclip
       end
 
       def queue_for_delete(style)
+        log("[s3] Queueing #{style} for delete.")
         @s3_queued_for_delete << s3_path(style) if exists?(style)
       end
 
       def flush_deletes #:nodoc:
-        logger.info("[paperclip][s3] Deleting files for #{name}")
+        log("[s3] Deleting files for #{name}")
         @s3_queued_for_delete.each do |path|
           begin
-            logger.info("[paperclip][s3] -> #{path}")
+            log("[s3] Deleting #{path}")
             if file = s3_bucket.key(path)
               file.delete
             end
