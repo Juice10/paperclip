@@ -106,11 +106,11 @@ module Paperclip
       def flush_writes #:nodoc:
         logger.info("[paperclip][fs] Writing files for #{name}")
         @queued_for_write.each do |style, file|
+          file.close
           FileUtils.mkdir_p(File.dirname(path(style)))
           logger.info("[paperclip][fs] -> #{path(style)}")
           FileUtils.mv(file.path, path(style))
           FileUtils.chmod(0644, path(style))
-          file.close
         end
         @queued_for_write = {}
       end
@@ -128,6 +128,17 @@ module Paperclip
             FileUtils.rm(path) if File.exist?(path)
           rescue Errno::ENOENT => e
             # ignore file-not-found, let everything else pass
+          end
+          begin
+            while(true)
+              path = File.dirname(path)
+              FileUtils.rmdir(path)
+            end
+          rescue Errno::EEXIST, Errno::ENOTEMPTY, Errno::ENOENT, Errno::EINVAL, Errno::ENOTDIR
+            # Stop trying to remove parent directories
+          rescue SystemCallError => e
+            logger.info("[paperclip] There was an unexpected error while deleting directories: #{e.class}")
+            # Ignore it
           end
         end
         @fs_queued_for_delete = []
@@ -168,6 +179,8 @@ module Paperclip
     # * +bucket+: This is the name of the S3 bucket that will store your files. Remember
     #   that the bucket must be unique across all of Amazon S3. If the bucket does not exist
     #   Paperclip will attempt to create it. The bucket name will not be interpolated.
+    #   You can define the bucket as a Proc if you want to determine it's name at runtime.
+    #   Paperclip will call that Proc with attachment as the only argument.
     # * +url+: There are two options for the S3 url. You can choose to have the bucket's name
     #   placed domain-style (bucket.s3.amazonaws.com) or path-style (s3.amazonaws.com/bucket).
     #   Normally, this won't matter in the slightest and you can leave the default (which is
@@ -183,11 +196,12 @@ module Paperclip
         require 'right_aws'
         base.instance_eval do
           @s3_credentials = parse_credentials(@options[:s3_credentials])
-          @bucket         = @options[:bucket] || @s3_credentials[:bucket]
-          @s3_options     = @options[:s3_options] || {}
+          @bucket         = @options[:bucket]         || @s3_credentials[:bucket]
+          @bucket         = @bucket.call(self) if @bucket.is_a?(Proc)
+          @s3_options     = @options[:s3_options]     || {}
           @s3_permissions = @options[:s3_permissions] || 'public-read'
-          @s3_protocol    = @options[:s3_protocol] || (@s3_permissions == 'public-read' ? 'http' : 'https')
-          @s3_headers     = @options[:s3_headers] || {}
+          @s3_protocol    = @options[:s3_protocol]    || (@s3_permissions == 'public-read' ? 'http' : 'https')
+          @s3_headers     = @options[:s3_headers]     || {}
           @url            = ":s3_path_url" unless @url.to_s.match(/^:s3.*url$/) || @options[:s3_path]
           @s3_queued_for_delete = []
         end
@@ -275,11 +289,11 @@ module Paperclip
 
       def find_credentials creds
         case creds
-        when File:
+        when File
           YAML.load_file(creds.path)
-        when String:
+        when String
           YAML.load_file(creds)
-        when Hash:
+        when Hash
           creds
         else
           raise ArgumentError, "Credentials are not a path, file, or hash."

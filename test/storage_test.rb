@@ -82,6 +82,8 @@ class StorageTest < Test::Unit::TestCase
         @dummy.avatar = @file
       end
 
+      teardown { @file.close }
+
       should "not get a bucket to get a URL" do
         @dummy.avatar.expects(:s3).never
         @dummy.avatar.expects(:s3_bucket).never
@@ -124,6 +126,19 @@ class StorageTest < Test::Unit::TestCase
       end
     end
   end
+  
+  context "An attachment with S3 storage and bucket defined as a Proc" do
+    setup do
+      rebuild_model :storage => :s3,
+                    :bucket => lambda { |attachment| "bucket_#{attachment.instance.other}" },
+                    :s3_credentials => {:not => :important}
+    end
+    
+    should "get the right bucket name" do
+      assert "bucket_a", Dummy.new(:other => 'a').avatar.bucket_name
+      assert "bucket_b", Dummy.new(:other => 'b').avatar.bucket_name
+    end
+  end
 
   context "An attachment with S3 storage and specific s3 headers set" do
     setup do
@@ -143,6 +158,8 @@ class StorageTest < Test::Unit::TestCase
         @dummy = Dummy.new
         @dummy.avatar = @file
       end
+
+      teardown { @file.close }
 
       context "and saved" do
         setup do
@@ -189,6 +206,8 @@ class StorageTest < Test::Unit::TestCase
           @file = File.new(File.join(File.dirname(__FILE__), 'fixtures', '5k.png'), 'rb')
           @dummy.avatar = @file
         end
+
+        teardown { @file.close }
 
         should "still return a Tempfile when sent #to_io" do
           assert_equal Tempfile, @dummy.avatar.to_io.class

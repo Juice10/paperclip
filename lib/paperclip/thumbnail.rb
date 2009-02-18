@@ -1,8 +1,8 @@
 module Paperclip
   # Handles thumbnailing images that are uploaded.
-  class Thumbnail
+  class Thumbnail < Processor
 
-    attr_accessor :file, :current_geometry, :target_geometry, :format, :whiny, :convert_options
+    attr_accessor :current_geometry, :target_geometry, :format, :whiny, :convert_options
 
     # Creates a Thumbnail object set to work on the +file+ given. It
     # will attempt to transform the image into one defined by +target_geometry+
@@ -10,7 +10,8 @@ module Paperclip
     # unless specified. Thumbnail creation will raise no errors unless
     # +whiny+ is true (which it is, by default. If +convert_options+ is
     # set, the options will be appended to the convert command upon image conversion 
-    def initialize file, options = {}
+    def initialize file, options = {}, attachment = nil
+      super
       geometry          = options[:geometry]
       @file             = file
       @crop             = geometry[-1,1] == '#'
@@ -22,12 +23,6 @@ module Paperclip
 
       @current_format   = File.extname(@file.path)
       @basename         = File.basename(@file.path, @current_format)
-    end
-
-    # Creates a thumbnail, as specified in +initialize+, +make+s it, and returns the
-    # resulting Tempfile.
-    def self.make file, options = {}
-      new(file, options).make
     end
 
     # Returns true if the +target_geometry+ is meant to crop.
@@ -70,19 +65,6 @@ module Paperclip
       trans << " -crop \"#{crop}\" +repage" if crop
       trans << " #{convert_options}" if convert_options?
       trans
-    end
-  end
-
-  # Due to how ImageMagick handles its image format conversion and how Tempfile
-  # handles its naming scheme, it is necessary to override how Tempfile makes
-  # its names so as to allow for file extensions. Idea taken from the comments
-  # on this blog post:
-  # http://marsorange.com/archives/of-mogrify-ruby-tempfile-dynamic-class-definitions
-  class Tempfile < ::Tempfile
-    # Replaces Tempfile's +make_tmpname+ with one that honors file extensions.
-    def make_tmpname(basename, n)
-      extension = File.extname(basename)
-      sprintf("%s,%d,%d%s", File.basename(basename, extension), $$, n, extension)
     end
   end
 end
