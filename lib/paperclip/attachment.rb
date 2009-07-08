@@ -330,7 +330,7 @@ module Paperclip
     end
 
     def validate_width(options) #:nodoc:
-      unless original_filename.blank?
+      if @queued_for_write[:original]
         if file? && !options[:range].include?(original_dimensions.width)
           options[:message].gsub(/:min/, options[:min].to_s).gsub(/:max/, options[:max].to_s)
         end
@@ -338,7 +338,7 @@ module Paperclip
     end
 
     def validate_height(options) #:nodoc:
-      unless original_filename.blank?
+      if @queued_for_write[:original]
         if file? && !options[:range].include?(original_dimensions.height)
           options[:message].gsub(/:min/, options[:min].to_s).gsub(/:max/, options[:max].to_s)
         end
