@@ -1,23 +1,25 @@
+# encoding: utf-8
 module Paperclip
   # The Attachment class manages the files for a given attachment. It saves
   # when the model saves, deletes when the model is destroyed, and processes
   # the file upon assignment.
   class Attachment
-    
+
     def self.default_options
       @default_options ||= {
-        :url           => "/system/:attachment/:id/:style/:basename.:extension",
-        :path          => ":rails_root/public/system/:attachment/:id/:style/:basename.:extension",
+        :url           => "/system/:attachment/:id/:style/:filename",
+        :path          => ":rails_root/public:url",
         :styles        => {},
         :default_url   => "/:attachment/:style/missing.png",
         :default_path  => ":rails_root/public/:attachment/:style/missing.png",
         :default_style => :original,
-        :validations   => {},
-        :storage       => :filesystem
+        :validations   => [],
+        :storage       => :filesystem,
+        :whiny         => Paperclip.options[:whiny] || Paperclip.options[:whiny_thumbnails]
       }
     end
 
-    attr_reader :name, :instance, :styles, :default_style, :convert_options, :queued_for_write
+    attr_reader :name, :instance, :styles, :default_style, :convert_options, :queued_for_write, :options
 
     # Creates an Attachment object. +name+ is the name of the attachment,
     # +instance+ is the ActiveRecord object instance it's attached to, and
@@ -39,7 +41,7 @@ module Paperclip
       @validations       = options[:validations]
       @default_style     = options[:default_style]
       @storage           = options[:storage]
-      @whiny             = options[:whiny_thumbnails]
+      @whiny             = options[:whiny_thumbnails] || options[:whiny]
       @convert_options   = options[:convert_options] || {}
       @processors        = options[:processors] || [:thumbnail]
       @options           = options
@@ -50,24 +52,18 @@ module Paperclip
 
       normalize_style_definition
       initialize_storage
-
-      log("Paperclip attachment #{name} on #{instance.class} initialized.")
     end
 
     # What gets called when you call instance.attachment = File. It clears
     # errors, assigns attributes, processes the file, and runs validations. It
     # also queues up the previous file for deletion, to be flushed away on
     # #save of its host.  In addition to form uploads, you can also assign
-    # another Paperclip attachment: 
+    # another Paperclip attachment:
     #   new_user.avatar = old_user.avatar
     # If the file that is assigned is not valid, the processing (i.e.
     # thumbnailing, etc) will NOT be run.
     def assign uploaded_file
-      %w(file_name).each do |field|
-        unless @instance.class.column_names.include?("#{name}_#{field}")
-          raise PaperclipError.new("#{@instance.class} model does not have required column '#{name}_#{field}'")
-        end
-      end
+      ensure_required_accessors!
 
       if uploaded_file.is_a?(Paperclip::Attachment)
         uploaded_file = uploaded_file.to_file(:original)
@@ -75,25 +71,20 @@ module Paperclip
       end
 
       return nil unless valid_assignment?(uploaded_file)
-      log("Assigning #{uploaded_file.inspect} to #{name}")
 
       uploaded_file.binmode if uploaded_file.respond_to? :binmode
-      queue_existing_for_delete
-      @errors            = {}
-      @validation_errors = nil
+      self.clear
 
       return nil if uploaded_file.nil?
 
-      log("Writing attributes for #{name}")
       @queued_for_write[:original]   = uploaded_file.to_tempfile
-      instance_write(:file_name,       uploaded_file.original_filename.strip.gsub(/[^\w\d\.\-]+/, '_'))
+      instance_write(:file_name,       uploaded_file.original_filename.strip.gsub(/[^A-Za-z\d\.\-_]+/, '_'))
       instance_write(:content_type,    uploaded_file.content_type.to_s.strip)
       instance_write(:file_size,       uploaded_file.size.to_i)
       instance_write(:updated_at,      Time.now)
 
       @dirty = true
 
-      solidify_style_definitions
       post_process if valid?
 
       # Reset the file size if the original file was reprocessed.
@@ -102,7 +93,7 @@ module Paperclip
       uploaded_file.close if close_uploaded_file
       validate
     end
-    
+
     # Returns true if there is nothing in the queue
     def queue_empty? type = nil
       if type
@@ -111,7 +102,7 @@ module Paperclip
         @queued_for_write.size == 0
       end
     end
-    
+
     # Returns dimensions of uploaded width and height
     def original_dimensions
       Paperclip::Geometry.from_file(@queued_for_write[:original].path)
@@ -162,16 +153,31 @@ module Paperclip
     # the instance's errors and returns false, cancelling the save.
     def save
       if valid?
-        log("Saving files for #{name}")
         flush_deletes
         flush_writes
         @dirty = false
         true
       else
-        log("Errors on #{name}. Not saving.")
         flush_errors
         false
       end
+    end
+
+    # Clears out the attachment. Has the same effect as previously assigning
+    # nil to the attachment. Does NOT save. If you wish to clear AND save,
+    # use #destroy.
+    def clear
+      queue_existing_for_delete
+      @errors            = {}
+      @validation_errors = nil
+    end
+
+    # Destroys the attachment. Has the same effect as previously assigning
+    # nil to the attachment *and saving*. This is permanent. If you wish to
+    # wipe out the existing attachment but not save, use #clear.
+    def destroy
+      clear
+      save
     end
 
     # Returns the name of the file as originally assigned, and lives in the
@@ -191,40 +197,24 @@ module Paperclip
     def content_type
       instance_read(:content_type)
     end
-    
-    # Returns the last modified time of the file as originally assigned, and 
+
+    # Returns the last modified time of the file as originally assigned, and
     # lives in the <attachment>_updated_at attribute of the model.
     def updated_at
       time = instance_read(:updated_at)
       time && time.to_i
     end
 
-    # A hash of procs that are run during the interpolation of a path or url.
-    # A variable of the format :name will be replaced with the return value of
-    # the proc named ":name". Each lambda takes the attachment and the current
-    # style as arguments. This hash can be added to with your own proc if
-    # necessary.
+    # Paths and URLs can have a number of variables interpolated into them
+    # to vary the storage location based on name, id, style, class, etc.
+    # This method is a deprecated access into supplying and retrieving these
+    # interpolations. Future access should use either Paperclip.interpolates
+    # or extend the Paperclip::Interpolations module directly.
     def self.interpolations
-      @interpolations ||= {
-        :rails_root   => lambda{|attachment,style| RAILS_ROOT },
-        :rails_env    => lambda{|attachment,style| RAILS_ENV },
-        :class        => lambda do |attachment,style|
-                           attachment.instance.class.name.underscore.pluralize
-                         end,
-        :basename     => lambda do |attachment,style|
-                           attachment.original_filename.gsub(/#{File.extname(attachment.original_filename)}$/, "")
-                         end,
-        :extension    => lambda do |attachment,style| 
-                           ((style = attachment.styles[style]) && style[:format]) ||
-                           File.extname(attachment.original_filename).gsub(/^\.+/, "")
-                         end,
-        :id           => lambda{|attachment,style| attachment.instance.id },
-        :id_partition => lambda do |attachment, style|
-                           ("%09d" % attachment.instance.id).scan(/\d{3}/).join("/")
-                         end,
-        :attachment   => lambda{|attachment,style| attachment.name.to_s.downcase.pluralize },
-        :style        => lambda{|attachment,style| style || attachment.default_style },
-      }
+      warn('[DEPRECATION] Paperclip::Attachment.interpolations is deprecated ' +
+           'and will be removed from future versions. ' +
+           'Use Paperclip.interpolates instead')
+      Paperclip::Interpolations
     end
 
     # This method really shouldn't be called that often. It's expected use is
@@ -248,7 +238,7 @@ module Paperclip
         true
       end
     end
-    
+
     # Returns true if a file has been assigned.
     def file?
       !original_filename.blank?
@@ -276,16 +266,16 @@ module Paperclip
 
     private
 
-    def logger #:nodoc:
-      instance.logger
+    def ensure_required_accessors! #:nodoc:
+      %w(file_name).each do |field|
+        unless @instance.respond_to?("#{name}_#{field}") && @instance.respond_to?("#{name}_#{field}=")
+          raise PaperclipError.new("#{@instance.class} model missing required attr_accessor for '#{name}_#{field}'")
+        end
+      end
     end
 
     def log message #:nodoc:
-      logger.info("[paperclip] #{message}") if logging?
-    end
-
-    def logging? #:nodoc:
-      Paperclip.options[:log]
+      Paperclip.log(message)
     end
 
     def valid_assignment? file #:nodoc:
@@ -295,14 +285,48 @@ module Paperclip
     def validate #:nodoc:
       unless @validation_errors
         @validation_errors = @validations.inject({}) do |errors, validation|
-          name, block = validation
-          errors[name] = block.call(self, instance) if block
+          name, options = validation
+          errors[name] = send(:"validate_#{name}", options) if allow_validation?(options)
           errors
         end
         @validation_errors.reject!{|k,v| v == nil }
         @errors.merge!(@validation_errors)
       end
       @validation_errors
+    end
+
+    def allow_validation? options #:nodoc:
+      (options[:if].nil? || check_guard(options[:if])) && (options[:unless].nil? || !check_guard(options[:unless]))
+    end
+
+    def check_guard guard #:nodoc:
+      if guard.respond_to? :call
+        guard.call(instance)
+      elsif ! guard.blank?
+        instance.send(guard.to_s)
+      end
+    end
+
+    def validate_size options #:nodoc:
+      if file? && !options[:range].include?(size.to_i)
+        options[:message].gsub(/:min/, options[:min].to_s).gsub(/:max/, options[:max].to_s)
+      end
+    end
+
+    def validate_presence options #:nodoc:
+      options[:message] unless file?
+    end
+
+    def validate_content_type options #:nodoc:
+      valid_types = [options[:content_type]].flatten
+      unless original_filename.blank?
+        unless valid_types.blank?
+          content_type = instance_read(:content_type)
+          unless valid_types.any?{|t| content_type.nil? || t === content_type }
+            options[:message] || "is not one of the allowed file types."
+          end
+        end
+      end
     end
 
     def normalize_style_definition #:nodoc:
@@ -329,9 +353,8 @@ module Paperclip
 
     def solidify_style_definitions #:nodoc:
       @styles.each do |name, args|
-        if @styles[name][:geometry].respond_to?(:call)
-          @styles[name][:geometry] = @styles[name][:geometry].call(instance) 
-        end
+        @styles[name][:geometry] = @styles[name][:geometry].call(instance) if @styles[name][:geometry].respond_to?(:call)
+        @styles[name][:processors] = @styles[name][:processors].call(instance) if @styles[name][:processors].respond_to?(:call)
       end
     end
 
@@ -351,23 +374,26 @@ module Paperclip
 
     def post_process #:nodoc:
       return if @queued_for_write[:original].nil?
+      solidify_style_definitions
       return if fire_events(:before)
       post_process_styles
       return if fire_events(:after)
     end
 
-    def fire_events(which)
+    def fire_events(which) #:nodoc:
       return true if callback(:"#{which}_post_process") == false
       return true if callback(:"#{which}_#{name}_post_process") == false
     end
 
-    def post_process_styles
-      log("Post-processing #{name}")
+    def callback which #:nodoc:
+      instance.run_callbacks(which, @queued_for_write){|result, obj| result == false }
+    end
+
+    def post_process_styles #:nodoc:
       @styles.each do |name, args|
         begin
           raise RuntimeError.new("Style #{name} has no processors defined.") if args[:processors].blank?
           @queued_for_write[name] = args[:processors].inject(@queued_for_write[:original]) do |file, processor|
-            log("Processing #{name} #{file} in the #{processor} processor.")
             Paperclip.processor(processor).make(file, args, self)
           end
         rescue PaperclipError => e
@@ -377,24 +403,13 @@ module Paperclip
       end
     end
 
-    def callback which #:nodoc:
-      instance.run_callbacks(which, @queued_for_write){|result, obj| result == false }
-    end
-
-    def interpolate(pattern, style = default_style) #:nodoc:
-      interpolations = self.class.interpolations.sort{|a,b| a.first.to_s <=> b.first.to_s }
-      interpolations.reverse.inject( pattern.dup ) do |result, interpolation|
-        tag, blk = interpolation
-        result.gsub(/:#{tag}/) do |match|
-          blk.call( self, style )
-        end
-      end
+    def interpolate pattern, style = default_style #:nodoc:
+      Paperclip::Interpolations.interpolate(pattern, self, style)
     end
 
     def queue_existing_for_delete #:nodoc:
       return unless file?
 
-      log("Queueing the existing files for #{name} for deletion.")
       [:original, *@styles.keys].uniq.map do |style|
         queue_for_delete(style)
       end

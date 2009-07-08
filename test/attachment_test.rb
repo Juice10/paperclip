@@ -1,3 +1,4 @@
+# encoding: utf-8
 require 'test/helper'
 
 class Dummy
@@ -5,6 +6,14 @@ class Dummy
 end
 
 class AttachmentTest < Test::Unit::TestCase
+  should "return the path based on the url by default" do
+    @attachment = attachment :url => "/:class/:id/:basename"
+    @model = @attachment.instance
+    @model.id = 1234
+    @model.avatar_file_name = "fake.jpg"
+    assert_equal "#{RAILS_ROOT}/public/fake_models/1234/fake", @attachment.path
+  end
+
   context "Attachment default_options" do
     setup do
       rebuild_model
@@ -32,7 +41,7 @@ class AttachmentTest < Test::Unit::TestCase
       setup do
         @dummy = Dummy.new
       end
-      
+
       should "return false when asked exists?" do
         assert !@dummy.avatar.exists?
       end
@@ -46,7 +55,7 @@ class AttachmentTest < Test::Unit::TestCase
 
       Paperclip::Attachment.default_options.keys.each do |key|
         should "be the default_options for #{key}" do
-          assert_equal @old_default_options[key], 
+          assert_equal @old_default_options[key],
                        @attachment.instance_variable_get("@#{key}"),
                        key
         end
@@ -103,6 +112,20 @@ class AttachmentTest < Test::Unit::TestCase
       temporary_rails_env(@rails_env) {
         assert_equal "#{@rails_env}/#{@id}.png", @dummy.avatar.path
       }
+    end
+  end
+
+  context "An attachment with a default style and an extension interpolation" do
+    setup do
+      @attachment = attachment :path => ":basename.:extension",
+                               :styles => { :default => ["100x100", :png] },
+                               :default_style => :default
+      @file = StringIO.new("...")
+      @file.expects(:original_filename).returns("file.jpg")
+    end
+    should "return the right extension for the path" do
+      @attachment.assign(@file)
+      assert_equal "file.png", @attachment.path
     end
   end
 
@@ -165,11 +188,11 @@ class AttachmentTest < Test::Unit::TestCase
       Paperclip::Attachment.any_instance.expects(:extra_options_for).with(:large)
     end
   end
-  
+
   context "An attachment with :path that is a proc" do
     setup do
       rebuild_model :path => lambda{ |attachment| "path/#{attachment.instance.other}.:extension" }
-      
+
       @file = File.new(File.join(File.dirname(__FILE__),
                                  "fixtures",
                                  "5k.png"), 'rb')
@@ -178,31 +201,31 @@ class AttachmentTest < Test::Unit::TestCase
       @dummyB = Dummy.new(:other => 'b')
       @dummyB.avatar = @file
     end
-    
+
     teardown { @file.close }
-    
+
     should "return correct path" do
       assert_equal "path/a.png", @dummyA.avatar.path
       assert_equal "path/b.png", @dummyB.avatar.path
     end
   end
-  
+
   context "An attachment with :styles that is a proc" do
     setup do
       rebuild_model :styles => lambda{ |attachment| {:thumb => "50x50#", :large => "400x400"} }
-      
+
       @attachment = Dummy.new.avatar
     end
-    
+
     should "have the correct geometry" do
       assert_equal "50x50#", @attachment.styles[:thumb][:geometry]
     end
   end
-  
+
   context "An attachment with :url that is a proc" do
     setup do
       rebuild_model :url => lambda{ |attachment| "path/#{attachment.instance.other}.:extension" }
-      
+
       @file = File.new(File.join(File.dirname(__FILE__),
                                  "fixtures",
                                  "5k.png"), 'rb')
@@ -211,16 +234,16 @@ class AttachmentTest < Test::Unit::TestCase
       @dummyB = Dummy.new(:other => 'b')
       @dummyB.avatar = @file
     end
-    
+
     teardown { @file.close }
-    
+
     should "return correct url" do
       assert_equal "path/a.png", @dummyA.avatar.url(:original, false)
       assert_equal "path/b.png", @dummyB.avatar.url(:original, false)
     end
   end
 
-  geometry_specs = [ 
+  geometry_specs = [
     [ lambda{|z| "50x50#" }, :png ],
     lambda{|z| "50x50#" },
     { :geometry => lambda{|z| "50x50#" } }
@@ -265,7 +288,28 @@ class AttachmentTest < Test::Unit::TestCase
       end
     end
   end
-  
+
+  context "An attachment with :processors that is a proc" do
+    setup do
+      rebuild_model :styles => { :normal => '' }, :processors => lambda { |a| [ :test ] }
+      @attachment = Dummy.new.avatar
+    end
+
+    should "not run the proc immediately" do
+      assert_kind_of Proc, @attachment.styles[:normal][:processors]
+    end
+
+    context "when assigned" do
+      setup do
+        @attachment.assign(StringIO.new("."))
+      end
+
+      should "have the correct processors" do
+        assert_equal [ :test ], @attachment.styles[:normal][:processors]
+      end
+    end
+  end
+
   context "An attachment with erroring processor" do
     setup do
       rebuild_model :processor => [:thumbnail], :styles => { :small => '' }, :whiny_thumbnails => true
@@ -298,13 +342,13 @@ class AttachmentTest < Test::Unit::TestCase
       setup { @dummy.avatar = @file }
 
       before_should "call #make on all specified processors" do
-        expected_params = @style_params[:once].merge({:processors => [:thumbnail, :test], :whiny => nil, :convert_options => ""})
+        expected_params = @style_params[:once].merge({:processors => [:thumbnail, :test], :whiny => true, :convert_options => ""})
         Paperclip::Thumbnail.expects(:make).with(@file, expected_params, @dummy.avatar).returns(@file)
         Paperclip::Test.expects(:make).with(@file, expected_params, @dummy.avatar).returns(@file)
       end
-      
+
       before_should "call #make with attachment passed as third argument" do
-        expected_params = @style_params[:once].merge({:processors => [:thumbnail, :test], :whiny => nil, :convert_options => ""})
+        expected_params = @style_params[:once].merge({:processors => [:thumbnail, :test], :whiny => true, :convert_options => ""})
         Paperclip::Test.expects(:make).with(@file, expected_params, @dummy.avatar).returns(@file)
       end
     end
@@ -407,7 +451,7 @@ class AttachmentTest < Test::Unit::TestCase
   context "Attachment with strange letters" do
     setup do
       rebuild_model
-      
+
       @not_file = mock
       @tempfile = mock
       @not_file.stubs(:nil?).returns(false)
@@ -416,7 +460,7 @@ class AttachmentTest < Test::Unit::TestCase
       @not_file.expects(:to_tempfile).returns(@tempfile)
       @not_file.expects(:original_filename).returns("sheep_say_bæ.png\r\n")
       @not_file.expects(:content_type).returns("image/png\r\n")
-      
+
       @dummy = Dummy.new
       @attachment = @dummy.avatar
       @attachment.expects(:valid_assignment?).with(@not_file).returns(true)
@@ -426,15 +470,16 @@ class AttachmentTest < Test::Unit::TestCase
       @attachment.expects(:validate)
       @dummy.avatar = @not_file
     end
-    
+
     should "remove strange letters and replace with underscore (_)" do
       assert_equal "sheep_say_b_.png", @dummy.avatar.original_filename
     end
-    
+
   end
 
   context "An attachment" do
     setup do
+      @old_defaults = Paperclip::Attachment.default_options.dup
       Paperclip::Attachment.default_options.merge!({
         :path => ":rails_root/tmp/:attachment/:class/:style/:id/:basename.:extension"
       })
@@ -442,12 +487,13 @@ class AttachmentTest < Test::Unit::TestCase
       rebuild_model
       @instance = Dummy.new
       @attachment = Paperclip::Attachment.new(:avatar, @instance)
-      @file = File.new(File.join(File.dirname(__FILE__),
-                                 "fixtures",
-                                 "5k.png"), 'rb')
+      @file = File.new(File.join(File.dirname(__FILE__), "fixtures", "5k.png"), 'rb')
     end
 
-    teardown { @file.close }
+    teardown do
+      @file.close
+      Paperclip::Attachment.default_options.merge!(@old_defaults)
+    end
 
     should "raise if there are not the correct columns when you try to assign" do
       @other_attachment = Paperclip::Attachment.new(:not_here, @instance)
@@ -461,13 +507,13 @@ class AttachmentTest < Test::Unit::TestCase
       assert_equal "/avatars/original/missing.png", @attachment.url
       assert_equal "/avatars/blah/missing.png", @attachment.url(:blah)
     end
-    
+
     should "return default path as path when no file assigned" do
       assert @attachment.to_file.nil?
       assert_equal "#{RAILS_ROOT}/public/avatars/original/missing.png", @attachment.path
       assert_equal "#{RAILS_ROOT}/public/avatars/blah/missing.png",     @attachment.path(:blah)
     end
-    
+
     context "with a file assigned in the database" do
       setup do
         @attachment.stubs(:instance_read).with(:file_name).returns("5k.png")
@@ -486,7 +532,7 @@ class AttachmentTest < Test::Unit::TestCase
       should "make sure the updated_at mtime is in the url if it is defined" do
         assert_match %r{#{Time.now.to_i}$}, @attachment.url(:blah)
       end
- 
+
       should "make sure the updated_at mtime is NOT in the url if false is passed to the url method" do
         assert_no_match %r{#{Time.now.to_i}$}, @attachment.url(:blah, false)
       end
@@ -502,12 +548,12 @@ class AttachmentTest < Test::Unit::TestCase
       end
 
       should "return the proper path when filename has a single .'s" do
-        assert_equal "./test/../tmp/avatars/dummies/original/#{@instance.id}/5k.png", @attachment.path
+        assert_equal File.expand_path("./test/../tmp/avatars/dummies/original/#{@instance.id}/5k.png"), File.expand_path(@attachment.path)
       end
 
       should "return the proper path when filename has multiple .'s" do
-        @attachment.stubs(:instance_read).with(:file_name).returns("5k.old.png")      
-        assert_equal "./test/../tmp/avatars/dummies/original/#{@instance.id}/5k.old.png", @attachment.path
+        @attachment.stubs(:instance_read).with(:file_name).returns("5k.old.png")
+        assert_equal File.expand_path("./test/../tmp/avatars/dummies/original/#{@instance.id}/5k.old.png"), File.expand_path(@attachment.path)
       end
 
       context "when expecting three styles" do
@@ -560,7 +606,7 @@ class AttachmentTest < Test::Unit::TestCase
                 cmd = %Q[identify -format "%w %h %b %m" "#{@attachment.path(style.first)}"]
                 out = `#{cmd}`
                 width, height, size, format = out.split(" ")
-                assert_equal style[1].to_s, width.to_s 
+                assert_equal style[1].to_s, width.to_s
                 assert_equal style[2].to_s, height.to_s
                 assert_equal style[3].to_s, format.to_s
               end
@@ -571,20 +617,39 @@ class AttachmentTest < Test::Unit::TestCase
               file.close
             end
 
-            context "and deleted" do
+            context "and trying to delete" do
               setup do
                 @existing_names = @attachment.styles.keys.collect do |style|
                   @attachment.path(style)
                 end
+              end
+
+              should "delete the files after assigning nil" do
                 @attachment.expects(:instance_write).with(:file_name, nil)
                 @attachment.expects(:instance_write).with(:content_type, nil)
                 @attachment.expects(:instance_write).with(:file_size, nil)
                 @attachment.expects(:instance_write).with(:updated_at, nil)
                 @attachment.assign nil
                 @attachment.save
+                @existing_names.each{|f| assert ! File.exists?(f) }
               end
 
-              should "delete the files" do
+              should "delete the files when you call #clear and #save" do
+                @attachment.expects(:instance_write).with(:file_name, nil)
+                @attachment.expects(:instance_write).with(:content_type, nil)
+                @attachment.expects(:instance_write).with(:file_size, nil)
+                @attachment.expects(:instance_write).with(:updated_at, nil)
+                @attachment.clear
+                @attachment.save
+                @existing_names.each{|f| assert ! File.exists?(f) }
+              end
+
+              should "delete the files when you call #delete" do
+                @attachment.expects(:instance_write).with(:file_name, nil)
+                @attachment.expects(:instance_write).with(:content_type, nil)
+                @attachment.expects(:instance_write).with(:file_size, nil)
+                @attachment.expects(:instance_write).with(:updated_at, nil)
+                @attachment.destroy
                 @existing_names.each{|f| assert ! File.exists?(f) }
               end
             end

@@ -10,30 +10,79 @@ class StorageTest < Test::Unit::TestCase
       @dummy = Dummy.new
       @avatar = @dummy.avatar
 
-      @current_env = ENV['RAILS_ENV']
+      @current_env = RAILS_ENV
     end
 
     teardown do
-      ENV['RAILS_ENV'] = @current_env
+      Object.const_set("RAILS_ENV", @current_env)
     end
 
     should "get the correct credentials when RAILS_ENV is production" do
-      ENV['RAILS_ENV'] = 'production'
+      Object.const_set('RAILS_ENV', "production")
       assert_equal({:key => "12345"},
                    @avatar.parse_credentials('production' => {:key => '12345'},
                                              :development => {:key => "54321"}))
     end
 
     should "get the correct credentials when RAILS_ENV is development" do
-      ENV['RAILS_ENV'] = 'development'
+      Object.const_set('RAILS_ENV', "development")
       assert_equal({:key => "54321"},
                    @avatar.parse_credentials('production' => {:key => '12345'},
                                              :development => {:key => "54321"}))
     end
 
     should "return the argument if the key does not exist" do
-      ENV['RAILS_ENV'] = "not really an env"
+      Object.const_set('RAILS_ENV', "not really an env")
       assert_equal({:test => "12345"}, @avatar.parse_credentials(:test => "12345"))
+    end
+  end
+
+  context "" do
+    setup do
+      rebuild_model :storage => :s3,
+                    :s3_credentials => {},
+                    :bucket => "bucket",
+                    :path => ":attachment/:basename.:extension",
+                    :url => ":s3_path_url"
+      @dummy = Dummy.new
+      @dummy.avatar = StringIO.new(".")
+    end
+
+    should "return a url based on an S3 path" do
+      assert_match %r{^http://s3.amazonaws.com/bucket/avatars/stringio.txt}, @dummy.avatar.url
+    end
+  end
+  context "" do
+    setup do
+      rebuild_model :storage => :s3,
+                    :s3_credentials => {},
+                    :bucket => "bucket",
+                    :path => ":attachment/:basename.:extension",
+                    :url => ":s3_domain_url"
+      @dummy = Dummy.new
+      @dummy.avatar = StringIO.new(".")
+    end
+
+    should "return a url based on an S3 subdomain" do
+      assert_match %r{^http://bucket.s3.amazonaws.com/avatars/stringio.txt}, @dummy.avatar.url
+    end
+  end
+  context "" do
+    setup do
+      rebuild_model :storage => :s3,
+                    :s3_credentials => {
+                      :production   => { :bucket => "prod_bucket" },
+                      :development  => { :bucket => "dev_bucket" }
+                    },
+                    :s3_host_alias => "something.something.com",
+                    :path => ":attachment/:basename.:extension",
+                    :url => ":s3_alias_url"
+      @dummy = Dummy.new
+      @dummy.avatar = StringIO.new(".")
+    end
+
+    should "return a url based on the host_alias" do
+      assert_match %r{^http://something.something.com/avatars/stringio.txt}, @dummy.avatar.url
     end
   end
 
@@ -45,13 +94,18 @@ class StorageTest < Test::Unit::TestCase
                       :development  => { :bucket => "dev_bucket" }
                     }
       @dummy = Dummy.new
+      @old_env = RAILS_ENV
     end
 
-    should "get the right bucket in production", :before => lambda{ ENV.expects(:[]).returns('production') } do
+    teardown{ Object.const_set("RAILS_ENV", @old_env) }
+
+    should "get the right bucket in production" do
+      Object.const_set("RAILS_ENV", "production")
       assert_equal "prod_bucket", @dummy.avatar.bucket_name
     end
 
-    should "get the right bucket in development", :before => lambda{ ENV.expects(:[]).returns('development') } do
+    should "get the right bucket in development" do
+      Object.const_set("RAILS_ENV", "development")
       assert_equal "dev_bucket", @dummy.avatar.bucket_name
     end
   end

@@ -43,7 +43,6 @@ module Paperclip
         alias_method :to_io, :to_file
 
         def flush_writes
-          log("[dual] Flushing all writes")
           write_queue = @queued_for_write
           s3_flush_writes
           @queued_for_write = write_queue
@@ -56,7 +55,6 @@ module Paperclip
         end
 
         def flush_deletes
-          log("[dual] Flushing all deletes")
           fs_flush_deletes
           s3_flush_deletes
         end
@@ -70,11 +68,11 @@ module Paperclip
     # * +path+: The location of the repository of attachments on disk. This can (and, in
     #   almost all cases, should) be coordinated with the value of the +url+ option to
     #   allow files to be saved into a place where Apache can serve them without
-    #   hitting your app. Defaults to 
+    #   hitting your app. Defaults to
     #   ":rails_root/public/:attachment/:id/:style/:basename.:extension"
-    #   By default this places the files in the app's public directory which can be served 
-    #   directly. If you are using capistrano for deployment, a good idea would be to 
-    #   make a symlink to the capistrano-created system directory from inside your app's 
+    #   By default this places the files in the app's public directory which can be served
+    #   directly. If you are using capistrano for deployment, a good idea would be to
+    #   make a symlink to the capistrano-created system directory from inside your app's
     #   public directory.
     #   See Paperclip::Attachment#interpolate for more information on variable interpolaton.
     #     :path => "/var/app/attachments/:class/:id/:style/:basename.:extension"
@@ -101,11 +99,10 @@ module Paperclip
       alias_method :to_io, :to_file
 
       def flush_writes #:nodoc:
-        log("[fs] Writing files for #{name}")
         @queued_for_write.each do |style, file|
           file.close
           FileUtils.mkdir_p(File.dirname(path(style)))
-          log("[fs] Writing #{path(style)}")
+          log("saving #{path(style)}")
           FileUtils.mv(file.path, path(style))
           FileUtils.chmod(0644, path(style))
         end
@@ -113,15 +110,13 @@ module Paperclip
       end
 
       def queue_for_delete(style)
-        log("[fs] Queueing #{style} for delete.")
         @fs_queued_for_delete << path(style) if exists?(style)
       end
 
       def flush_deletes #:nodoc:
-        log("[fs] Deleting files for #{name}")
         @fs_queued_for_delete.each do |path|
           begin
-            log("[fs] Deleting #{path}")
+            log("deleting #{path}")
             FileUtils.rm(path) if File.exist?(path)
           rescue Errno::ENOENT => e
             # ignore file-not-found, let everything else pass
@@ -134,7 +129,7 @@ module Paperclip
           rescue Errno::EEXIST, Errno::ENOTEMPTY, Errno::ENOENT, Errno::EINVAL, Errno::ENOTDIR
             # Stop trying to remove parent directories
           rescue SystemCallError => e
-            log("[fs] There was an unexpected error while deleting directories: #{e.class}")
+            log("There was an unexpected error while deleting directories: #{e.class}")
             # Ignore it
           end
         end
@@ -151,25 +146,25 @@ module Paperclip
     #   database.yml file, so different environments can use different accounts:
     #     development:
     #       access_key_id: 123...
-    #       secret_access_key: 123... 
+    #       secret_access_key: 123...
     #     test:
     #       access_key_id: abc...
-    #       secret_access_key: abc... 
+    #       secret_access_key: abc...
     #     production:
     #       access_key_id: 456...
-    #       secret_access_key: 456... 
+    #       secret_access_key: 456...
     #   This is not required, however, and the file may simply look like this:
     #     access_key_id: 456...
-    #     secret_access_key: 456... 
+    #     secret_access_key: 456...
     #   In which case, those access keys will be used in all environments. You can also
     #   put your bucket name in this file, instead of adding it to the code directly.
-    #   This is useful when you want the same account but a different bucket for 
+    #   This is useful when you want the same account but a different bucket for
     #   development versus production.
     # * +s3_permissions+: This is a String that should be one of the "canned" access
     #   policies that S3 provides (more information can be found here:
     #   http://docs.amazonwebservices.com/AmazonS3/2006-03-01/RESTAccessPolicy.html#RESTCannedAccessPolicies)
     #   The default for Paperclip is "public-read".
-    # * +s3_protocol+: The protocol for the URLs generated to your S3 assets. Can be either 
+    # * +s3_protocol+: The protocol for the URLs generated to your S3 assets. Can be either
     #   'http' or 'https'. Defaults to 'http' when your :s3_permissions are 'public-read' (the
     #   default), and 'https' when your :s3_permissions are anything else.
     # * +s3_headers+: A hash of headers such as {'Expires' => 1.year.from_now.httpdate}
@@ -178,11 +173,21 @@ module Paperclip
     #   Paperclip will attempt to create it. The bucket name will not be interpolated.
     #   You can define the bucket as a Proc if you want to determine it's name at runtime.
     #   Paperclip will call that Proc with attachment as the only argument.
-    # * +url+: There are two options for the S3 url. You can choose to have the bucket's name
+    # * +s3_host_alias+: The fully-qualified domain name (FQDN) that is the alias to the
+    #   S3 domain of your bucket. Used with the :s3_alias_url url interpolation. See the
+    #   link in the +url+ entry for more information about S3 domains and buckets.
+    # * +url+: There are three options for the S3 url. You can choose to have the bucket's name
     #   placed domain-style (bucket.s3.amazonaws.com) or path-style (s3.amazonaws.com/bucket).
+    #   Lastly, you can specify a CNAME (which requires the CNAME to be specified as
+    #   :s3_alias_url. You can read more about CNAMEs and S3 at
+    #   http://docs.amazonwebservices.com/AmazonS3/latest/index.html?VirtualHosting.html
     #   Normally, this won't matter in the slightest and you can leave the default (which is
     #   path-style, or :s3_path_url). But in some cases paths don't work and you need to use
     #   the domain-style (:s3_domain_url). Anything else here will be treated like path-style.
+    #   NOTE: If you use a CNAME for use with CloudFront, you can NOT specify https as your
+    #   :s3_protocol; This is *not supported* by S3/CloudFront. Finally, when using the host
+    #   alias, the :bucket parameter is ignored, as the hostname is used as the bucket name
+    #   by S3.
     # * +path+: This is the key under the bucket in which the file will be stored. The
     #   URL will be constructed from the bucket and the path. This is what you will want
     #   to interpolate. Keys should be unique, like filenames, and despite the fact that
@@ -200,12 +205,16 @@ module Paperclip
           @s3_protocol    = @options[:s3_protocol]    || (@s3_permissions == 'public-read' ? 'http' : 'https')
           @s3_headers     = @options[:s3_headers]     || {}
           @url            = ":s3_path_url" unless @url.to_s.match(/^:s3.*url$/) || @options[:s3_path]
+          @s3_host_alias  = @options[:s3_host_alias]
           @s3_queued_for_delete = []
         end
-        base.class.interpolations[:s3_path_url] = lambda do |attachment, style|
+        Paperclip.interpolates(:s3_alias_url) do |attachment, style|
+          "#{attachment.s3_protocol}://#{attachment.s3_host_alias}/#{attachment.path(style).gsub(%r{^/}, "")}"
+        end
+        Paperclip.interpolates(:s3_path_url) do |attachment, style|
           "#{attachment.s3_protocol}://s3.amazonaws.com/#{attachment.bucket_name}/#{attachment.path(style).gsub(%r{^/}, "")}"
         end
-        base.class.interpolations[:s3_domain_url] = lambda do |attachment, style|
+        Paperclip.interpolates(:s3_domain_url) do |attachment, style|
           "#{attachment.s3_protocol}://#{attachment.bucket_name}.s3.amazonaws.com/#{attachment.path(style).gsub(%r{^/}, "")}"
         end
       end
@@ -224,9 +233,13 @@ module Paperclip
         @bucket
       end
 
+      def s3_host_alias
+        @s3_host_alias
+      end
+
       def parse_credentials creds
         creds = find_credentials(creds).stringify_keys
-        (creds[ENV['RAILS_ENV']] || creds).symbolize_keys
+        (creds[RAILS_ENV] || creds).symbolize_keys
       end
 
       def exists?(style = default_style)
@@ -249,11 +262,10 @@ module Paperclip
       alias_method :to_io, :to_file
 
       def flush_writes #:nodoc:
-        log("[s3] Writing files for #{name}")
         @queued_for_write.each do |style, file|
           begin
             path_to_write = s3_path(style)
-            log("[s3] Storing #{path_to_write}")
+            log("saving #{path_to_write}")
             key = s3_bucket.key(path_to_write)
             key.data = file
             key.put(nil, @s3_permissions, {'Content-type' => instance_read(:content_type)}.merge(@s3_headers))
@@ -265,15 +277,13 @@ module Paperclip
       end
 
       def queue_for_delete(style)
-        log("[s3] Queueing #{style} for delete.")
         @s3_queued_for_delete << s3_path(style) if exists?(style)
       end
 
       def flush_deletes #:nodoc:
-        log("[s3] Deleting files for #{name}")
         @s3_queued_for_delete.each do |path|
           begin
-            log("[s3] Deleting #{path}")
+            log("deleting #{path}")
             if file = s3_bucket.key(path)
               file.delete
             end
