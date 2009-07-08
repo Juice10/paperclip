@@ -329,6 +329,22 @@ module Paperclip
       end
     end
 
+    def validate_width(options) #:nodoc:
+      unless original_filename.blank?
+        if file? && !options[:range].include?(original_dimensions.width)
+          options[:message].gsub(/:min/, options[:min].to_s).gsub(/:max/, options[:max].to_s)
+        end
+      end
+    end
+
+    def validate_height(options) #:nodoc:
+      unless original_filename.blank?
+        if file? && !options[:range].include?(original_dimensions.height)
+          options[:message].gsub(/:min/, options[:min].to_s).gsub(/:max/, options[:max].to_s)
+        end
+      end
+    end
+
     def normalize_style_definition #:nodoc:
       @styles.each do |name, args|
         unless args.is_a? Hash
