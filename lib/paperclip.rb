@@ -238,6 +238,14 @@ module Paperclip
         attachment_for(name).file?
       end
 
+      define_method "#{name}_width" do
+        attachment_for(name).width
+      end
+
+      define_method "#{name}_height" do
+        attachment_for(name).height
+      end
+
       validates_each(name) do |record, attr, value|
         attachment = record.attachment_for(name)
         attachment.send(:flush_errors) unless attachment.valid?
@@ -255,13 +263,14 @@ module Paperclip
       max     = options[:less_than]    || (options[:in] && options[:in].last)  || (1.0/0)
       range   = (min..max)
       message = options[:message] || "height must be between :min and :max pixels."
+      message = message.gsub(/:min/, min.to_s).gsub(/:max/, max.to_s)
 
-      attachment_definitions[name][:validations] << [:height, {:range   => range,
-                                                               :message => message,
-                                                               :if      => options[:if],
-                                                               :unless  => options[:unless]}]
+      validates_inclusion_of :"#{name}_height",
+                             :in      => range,
+                             :message => message,
+                             :if      => options[:if],
+                             :unless  => options[:unless]
     end
-
 
     # Places ActiveRecord-style validations on the width of the file assigned. The
     # possible options are:
@@ -274,11 +283,13 @@ module Paperclip
       max     = options[:less_than]    || (options[:in] && options[:in].last)  || (1.0/0)
       range   = (min..max)
       message = options[:message] || "width must be between :min and :max pixels."
+      message = message.gsub(/:min/, min.to_s).gsub(/:max/, max.to_s)
 
-      attachment_definitions[name][:validations] << [:width, {:range   => range,
-                                                              :message => message,
-                                                              :if      => options[:if],
-                                                              :unless  => options[:unless]}]
+      validates_inclusion_of :"#{name}_width",
+                             :in      => range,
+                             :message => message,
+                             :if      => options[:if],
+                             :unless  => options[:unless]
     end
 
     # Places ActiveRecord-style validations on the size of the file assigned. The
@@ -319,7 +330,7 @@ module Paperclip
     # * +unless+: Same as +if+ but validates if lambda or method returns false.
     def validates_attachment_presence name, options = {}
       message = options[:message] || "must be set."
-      validates_presence_of :"#{name}_file_name", 
+      validates_presence_of :"#{name}_file_name",
                             :message => message,
                             :if      => options[:if],
                             :unless  => options[:unless]

@@ -123,6 +123,14 @@ module Paperclip
       Paperclip::Geometry.from_file(@queued_for_write[:original].path)
     end
 
+    def height
+      original_dimensions.height if file?
+    end
+
+    def width
+      original_dimensions.width if file?
+    end
+
     # Returns the public URL of the attachment, with a given style. Note that
     # this does not necessarily need to point to a file that your web server
     # can access and can point to an action in your app, if you need fine
