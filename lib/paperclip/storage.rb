@@ -211,7 +211,6 @@ module Paperclip
           @s3_headers     = @options[:s3_headers]     || {}
           @url            = ":s3_path_url" unless @url.to_s.match(/^:s3.*url$/) || @options[:s3_path]
           @s3_host_alias  = @options[:s3_host_alias]
-          @url            = ":s3_path_url" unless @url.to_s.match(/^:s3.*url$/)
 
           @s3_queued_for_delete = []
           AWS::S3::Base.establish_connection!( @s3_options.merge(
