@@ -25,6 +25,7 @@
 #
 # See the +has_attached_file+ documentation for more details.
 
+require 'erb'
 require 'tempfile'
 require 'paperclip/upfile'
 require 'paperclip/iostream'
@@ -33,6 +34,7 @@ require 'paperclip/processor'
 require 'paperclip/thumbnail'
 require 'paperclip/storage'
 require 'paperclip/interpolations'
+require 'paperclip/style'
 require 'paperclip/attachment'
 if defined? RAILS_ROOT
   Dir.glob(File.join(File.expand_path(RAILS_ROOT), "lib", "paperclip_processors", "*.rb")).each do |processor|
@@ -44,7 +46,7 @@ end
 # documentation for Paperclip::ClassMethods for more useful information.
 module Paperclip
 
-  VERSION = "2.2.9.2"
+  VERSION = "2.3.1.1"
 
   class << self
     # Provides configurability to Paperclip. There are a number of options available, such as:
@@ -93,7 +95,7 @@ module Paperclip
     # Paperclip.options[:log_command] is set to true (defaults to false). This
     # will only log if logging in general is set to true as well.
     def run cmd, params = "", expected_outcodes = 0
-      command = %Q<#{%Q[#{path_for_command(cmd)} #{params}].gsub(/\s+/, " ")}>
+      command = %Q[#{path_for_command(cmd)} #{params}].gsub(/\s+/, " ")
       command = "#{command} 2>#{bit_bucket}" if Paperclip.options[:swallow_stderr]
       Paperclip.log(command) if Paperclip.options[:log_command]
       output = `#{command}`
@@ -293,11 +295,13 @@ module Paperclip
       max     = options[:less_than]    || (options[:in] && options[:in].last)  || (1.0/0)
       range   = (min..max)
       message = options[:message] || "file size must be between :min and :max bytes."
+      message = message.gsub(/:min/, min.to_s).gsub(/:max/, max.to_s)
 
-      attachment_definitions[name][:validations] << [:size, {:range   => range,
-                                                             :message => message,
-                                                             :if      => options[:if],
-                                                             :unless  => options[:unless]}]
+      validates_inclusion_of :"#{name}_file_size",
+                             :in      => range,
+                             :message => message,
+                             :if      => options[:if],
+                             :unless  => options[:unless]
     end
 
     # Adds errors if thumbnail creation fails. The same as specifying :whiny_thumbnails => true.
@@ -315,9 +319,10 @@ module Paperclip
     # * +unless+: Same as +if+ but validates if lambda or method returns false.
     def validates_attachment_presence name, options = {}
       message = options[:message] || "must be set."
-      attachment_definitions[name][:validations] << [:presence, {:message => message,
-                                                                 :if      => options[:if],
-                                                                 :unless  => options[:unless]}]
+      validates_presence_of :"#{name}_file_name", 
+                            :message => message,
+                            :if      => options[:if],
+                            :unless  => options[:unless]
     end
 
     # Places ActiveRecord-style validations on the content type of the file
@@ -337,10 +342,12 @@ module Paperclip
     # model, content_type validation will work _ONLY upon assignment_ and
     # re-validation after the instance has been reloaded will always succeed.
     def validates_attachment_content_type name, options = {}
-      attachment_definitions[name][:validations] << [:content_type, {:content_type => options[:content_type],
-                                                                     :message      => options[:message],
-                                                                     :if           => options[:if],
-                                                                     :unless       => options[:unless]}]
+      types = [options.delete(:content_type)].flatten
+      validates_each(:"#{name}_content_type", options) do |record, attr, value|
+        unless types.any?{|t| t === value }
+          record.errors.add(:"#{name}_content_type", :inclusion, :default => options[:message], :value => value)
+        end
+      end
     end
 
     # Returns the attachment definitions defined by each call to

@@ -7,19 +7,21 @@ module Paperclip
 
     def self.default_options
       @default_options ||= {
-        :url           => "/system/:attachment/:id/:style/:filename",
-        :path          => ":rails_root/public:url",
-        :styles        => {},
-        :default_url   => "/:attachment/:style/missing.png",
-        :default_path  => ":rails_root/public/:attachment/:style/missing.png",
-        :default_style => :original,
-        :validations   => [],
-        :storage       => :filesystem,
-        :whiny         => Paperclip.options[:whiny] || Paperclip.options[:whiny_thumbnails]
+        :url               => "/system/:attachment/:id/:style/:filename",
+        :path              => ":rails_root/public:url",
+        :styles            => {},
+        :processors        => [:thumbnail],
+        :convert_options   => {},
+        :default_url       => "/:attachment/:style/missing.png",
+        :default_path      => ":rails_root/public/:attachment/:style/missing.png",
+        :default_style     => :original,
+        :validations       => [],
+        :storage           => :filesystem,
+        :whiny             => Paperclip.options[:whiny] || Paperclip.options[:whiny_thumbnails]
       }
     end
 
-    attr_reader :name, :instance, :styles, :default_style, :convert_options, :queued_for_write, :options
+    attr_reader :name, :instance, :default_style, :convert_options, :queued_for_write, :whiny, :options
 
     # Creates an Attachment object. +name+ is the name of the attachment,
     # +instance+ is the ActiveRecord object instance it's attached to, and
@@ -35,23 +37,36 @@ module Paperclip
       @path              = options[:path]
       @path              = @path.call(self) if @path.is_a?(Proc)
       @styles            = options[:styles]
-      @styles            = @styles.call(self) if @styles.is_a?(Proc)
+      @normalized_styles = nil
       @default_url       = options[:default_url]
       @default_path      = options[:default_path]
       @validations       = options[:validations]
       @default_style     = options[:default_style]
       @storage           = options[:storage]
       @whiny             = options[:whiny_thumbnails] || options[:whiny]
-      @convert_options   = options[:convert_options] || {}
-      @processors        = options[:processors] || [:thumbnail]
+      @convert_options   = options[:convert_options]
+      @processors        = options[:processors]
       @options           = options
       @queued_for_write  = {}
       @errors            = {}
       @validation_errors = nil
       @dirty             = false
 
-      normalize_style_definition
       initialize_storage
+    end
+
+    def styles
+      unless @normalized_styles
+        @normalized_styles = {}
+        (@styles.respond_to?(:call) ? @styles.call(self) : @styles).each do |name, args|
+          @normalized_styles[name] = Paperclip::Style.new(name, args, self)
+        end
+      end
+      @normalized_styles
+    end
+
+    def processors
+      @processors.respond_to?(:call) ? @processors.call(instance) : @processors
     end
 
     # What gets called when you call instance.attachment = File. It clears
@@ -115,8 +130,8 @@ module Paperclip
     # security, however, for performance reasons.  set
     # include_updated_timestamp to false if you want to stop the attachment
     # update time appended to the url
-    def url style = default_style, include_updated_timestamp = true
-      url = original_filename.nil? ? interpolate(@default_url, style) : interpolate(@url, style)
+    def url style_name = default_style, include_updated_timestamp = true
+      url = original_filename.nil? ? interpolate(@default_url, style_name) : interpolate(@url, style_name)
       include_updated_timestamp && updated_at ? [url, updated_at].compact.join(url.include?("?") ? "&" : "?") : url
     end
 
@@ -124,13 +139,13 @@ module Paperclip
     # file is stored in the filesystem the path refers to the path of the file
     # on disk. If the file is stored in S3, the path is the "key" part of the
     # URL, and the :bucket option refers to the S3 bucket.
-    def path style = default_style
-      original_filename.nil? ? interpolate(@default_path, style) : interpolate(@path, style)
+    def path style_name = default_style
+      original_filename.nil? ? interpolate(@default_path, style_name) : interpolate(@path, style_name)
     end
 
     # Alias to +url+
-    def to_s style = nil
-      url(style)
+    def to_s style_name = nil
+      url(style_name)
     end
 
     # Returns true if there are no errors on this attachment.
@@ -202,7 +217,7 @@ module Paperclip
     # lives in the <attachment>_updated_at attribute of the model.
     def updated_at
       time = instance_read(:updated_at)
-      time && time.to_i
+      time && time.to_f.to_i
     end
 
     # Paths and URLs can have a number of variables interpolated into them
@@ -329,51 +344,6 @@ module Paperclip
       end
     end
 
-    def validate_width(options) #:nodoc:
-      if @queued_for_write[:original]
-        if file? && !options[:range].include?(original_dimensions.width)
-          options[:message].gsub(/:min/, options[:min].to_s).gsub(/:max/, options[:max].to_s)
-        end
-      end
-    end
-
-    def validate_height(options) #:nodoc:
-      if @queued_for_write[:original]
-        if file? && !options[:range].include?(original_dimensions.height)
-          options[:message].gsub(/:min/, options[:min].to_s).gsub(/:max/, options[:max].to_s)
-        end
-      end
-    end
-
-    def normalize_style_definition #:nodoc:
-      @styles.each do |name, args|
-        unless args.is_a? Hash
-          dimensions, format = [args, nil].flatten[0..1]
-          format             = nil if format.blank?
-          @styles[name]      = {
-            :processors      => @processors,
-            :geometry        => dimensions,
-            :format          => format,
-            :whiny           => @whiny,
-            :convert_options => extra_options_for(name)
-          }
-        else
-          @styles[name] = {
-            :processors => @processors,
-            :whiny => @whiny,
-            :convert_options => extra_options_for(name)
-          }.merge(@styles[name])
-        end
-      end
-    end
-
-    def solidify_style_definitions #:nodoc:
-      @styles.each do |name, args|
-        @styles[name][:geometry] = @styles[name][:geometry].call(instance) if @styles[name][:geometry].respond_to?(:call)
-        @styles[name][:processors] = @styles[name][:processors].call(instance) if @styles[name][:processors].respond_to?(:call)
-      end
-    end
-
     def initialize_storage #:nodoc:
       @storage_module = Paperclip::Storage.const_get(@storage.to_s.capitalize)
       self.extend(@storage_module)
@@ -390,7 +360,6 @@ module Paperclip
 
     def post_process #:nodoc:
       return if @queued_for_write[:original].nil?
-      solidify_style_definitions
       return if fire_events(:before)
       post_process_styles
       return if fire_events(:after)
@@ -406,11 +375,11 @@ module Paperclip
     end
 
     def post_process_styles #:nodoc:
-      @styles.each do |name, args|
+      styles.each do |name, style|
         begin
-          raise RuntimeError.new("Style #{name} has no processors defined.") if args[:processors].blank?
-          @queued_for_write[name] = args[:processors].inject(@queued_for_write[:original]) do |file, processor|
-            Paperclip.processor(processor).make(file, args, self)
+          raise RuntimeError.new("Style #{name} has no processors defined.") if style.processors.blank?
+          @queued_for_write[name] = style.processors.inject(@queued_for_write[:original]) do |file, processor|
+            Paperclip.processor(processor).make(file, style.processor_options, self)
           end
         rescue PaperclipError => e
           log("An error was received while processing: #{e.inspect}")
@@ -419,8 +388,8 @@ module Paperclip
       end
     end
 
-    def interpolate pattern, style = default_style #:nodoc:
-      Paperclip::Interpolations.interpolate(pattern, self, style)
+    def interpolate pattern, style_name = default_style #:nodoc:
+      Paperclip::Interpolations.interpolate(pattern, self, style_name)
     end
 
     def queue_existing_for_delete #:nodoc:
